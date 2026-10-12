@@ -3257,6 +3257,53 @@ int is_inside_dir(const char *dir)
 	return rc;
 }
 
+/*
+ * core.protectWorktree: refuse the removal of any path outside the git
+ * directory, i.e. never delete a working-tree file or directory.  Paths
+ * inside the git directory (objects, refs, locks, temporary files, the
+ * index) stay removable, or git could not run at all.
+ */
+static int removal_is_protected(const char *path)
+{
+	struct strbuf target = STRBUF_INIT;
+	struct strbuf gitdir = STRBUF_INIT;
+	struct strbuf common = STRBUF_INIT;
+	int protected = 1;
+
+	if (!path || !*path)
+		return 0;
+	if (!the_repository || !the_repository->gitdir)
+		return 0;
+	if (!repo_protect_worktree(the_repository))
+		return 0;
+
+	if (!strbuf_realpath_forgiving(&gitdir, the_repository->gitdir, 0) ||
+	    !strbuf_realpath_forgiving(&target, path, 0))
+		goto out;
+
+	if (dir_inside_of(target.buf, gitdir.buf) >= 0) {
+		protected = 0;
+		goto out;
+	}
+
+	if (the_repository->commondir &&
+	    strbuf_realpath_forgiving(&common, the_repository->commondir, 0) &&
+	    dir_inside_of(target.buf, common.buf) >= 0)
+		protected = 0;
+
+out:
+	strbuf_release(&common);
+	strbuf_release(&gitdir);
+	strbuf_release(&target);
+	return protected;
+}
+
+void refuse_if_protected_removal(const char *path)
+{
+	if (removal_is_protected(path))
+		die(_("core.protectWorktree is set; refusing to remove '%s'"), path);
+}
+
 int is_empty_dir(const char *path)
 {
 	DIR *dir = opendir(path);
@@ -3479,6 +3526,7 @@ static int remove_dir_recurse(struct strbuf *path, int flag, int *kept_up)
 
 int remove_dir_recursively(struct strbuf *path, int flag)
 {
+	refuse_if_protected_removal(path->buf);
 	return remove_dir_recurse(path, flag, NULL);
 }
 
@@ -3525,6 +3573,8 @@ int get_sparse_checkout_patterns(struct pattern_list *pl)
 int remove_path(const char *name)
 {
 	const char *last;
+
+	refuse_if_protected_removal(name);
 
 	if (unlink(name) && !is_missing_file_error(errno))
 		return -1;

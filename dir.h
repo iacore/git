@@ -537,6 +537,12 @@ int get_sparse_checkout_patterns(struct pattern_list *pl);
 int remove_dir_recursively(struct strbuf *path, int flag);
 
 /*
+ * Dies if core.protectWorktree is set and removing 'path' would delete a
+ * path outside the git directory.
+ */
+void refuse_if_protected_removal(const char *path);
+
+/*
  * This function pointer type is called on each file discovered in
  * for_each_file_in_dir. The iteration stops if this method returns
  * non-zero.

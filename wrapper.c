@@ -6,6 +6,7 @@
 
 #include "git-compat-util.h"
 #include "abspath.h"
+#include "dir.h"
 #include "parse.h"
 #include "gettext.h"
 #include "strbuf.h"
@@ -703,11 +704,13 @@ int unlink_or_msg(const char *file, struct strbuf *err)
 
 int unlink_or_warn(const char *file)
 {
+	refuse_if_protected_removal(file);
 	return warn_if_unremovable("unlink", file, unlink(file));
 }
 
 int rmdir_or_warn(const char *file)
 {
+	refuse_if_protected_removal(file);
 	return warn_if_unremovable("rmdir", file, rmdir(file));
 }
 

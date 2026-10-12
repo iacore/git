@@ -55,6 +55,14 @@ core.protectHFS::
 	be considered equivalent to `.git` on an HFS+ filesystem.
 	Defaults to `true` on Mac OS, and `false` elsewhere.
 
+core.protectWorktree::
+	If set to true, refuse to remove any path outside the git
+	directory.  Commands that would delete a working-tree file or
+	directory, such as `git clean`, `git rm`, or a checkout that
+	removes files, fail instead of deleting anything.  Files inside
+	the git directory (objects, refs, locks, temporary files) are
+	still removable.  Defaults to `false`.
+
 core.protectNTFS::
 	If set to true, do not allow checkout of paths that would
 	cause problems with the NTFS filesystem, e.g. conflict with

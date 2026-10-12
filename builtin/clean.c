@@ -173,6 +173,9 @@ static int remove_dirs(struct strbuf *path, const char *prefix, int force_flag,
 
 	*dir_gone = 1;
 
+	if (!dry_run)
+		refuse_if_protected_removal(path->buf);
+
 	if ((force_flag & REMOVE_DIR_KEEP_NESTED_GIT) &&
 	    is_nonbare_repository_dir(path)) {
 		if (!quiet) {
@@ -1066,6 +1069,9 @@ int cmd_clean(int argc,
 		 */
 		if (lstat(abs_path.buf, &st))
 			continue;
+
+		if (!dry_run)
+			refuse_if_protected_removal(abs_path.buf);
 
 		if (S_ISDIR(st.st_mode)) {
 			if (remove_dirs(&abs_path, prefix, rm_flags, dry_run, quiet, &gone))

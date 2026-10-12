@@ -131,6 +131,17 @@ int repo_protect_hfs(struct repository *repo)
 		PROTECT_HFS_DEFAULT;
 }
 
+/*
+ * core.protectWorktree: refuse the removal of any path outside the git
+ * directory, i.e. never delete a working-tree file or directory.
+ */
+int repo_protect_worktree(struct repository *repo)
+{
+	return (repo && repo->initialized) ?
+		repo_config_values(repo)->protect_worktree :
+		0;
+}
+
 int repo_ignore_case(struct repository *repo)
 {
 	return (repo && repo->initialized) ?
@@ -571,6 +582,11 @@ int git_default_core_config(const char *var, const char *value,
 		return 0;
 	}
 
+	if (!strcmp(var, "core.protectworktree")) {
+		cfg->protect_worktree = git_config_bool(var, value);
+		return 0;
+	}
+
 	/* Add other config variables here and to Documentation/config.adoc. */
 	return platform_core_config(var, value, ctx, cb);
 }
@@ -758,6 +774,7 @@ void repo_config_values_init(struct repo_config_values *cfg)
 	cfg->apply_sparse_checkout = 0;
 	cfg->protect_hfs = PROTECT_HFS_DEFAULT;
 	cfg->protect_ntfs = PROTECT_NTFS_DEFAULT;
+	cfg->protect_worktree = 0;
 	cfg->ignore_case = 0;
 	cfg->trust_executable_bit = 1;
 	cfg->has_symlinks = platform_has_symlinks();

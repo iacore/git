@@ -136,6 +136,7 @@ struct repo_config_values {
 	int warn_on_object_refname_ambiguity;
 	int protect_hfs;
 	int protect_ntfs;
+	int protect_worktree;
 	int ignore_case;
 	int trust_executable_bit;
 	int has_symlinks;
@@ -181,6 +182,12 @@ int git_default_core_config(const char *var, const char *value,
  */
 int repo_protect_hfs(struct repository *repo);
 int repo_protect_ntfs(struct repository *repo);
+
+/*
+ * Getter for the `protect_worktree` field of `struct repo_config_values`.
+ * See the getters above for the `repo->initialized` check.
+ */
+int repo_protect_worktree(struct repository *repo);
 
 /*
  * Getter for the `ignore_case` field of `struct repo_config_values`.

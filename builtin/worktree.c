@@ -121,6 +121,7 @@ struct add_opts {
 	int detach;
 	int quiet;
 	int checkout;
+	int reflink;
 	int orphan;
 	int relative_paths;
 	const char *keep_locked;
@@ -584,6 +585,16 @@ static int add_worktree(const char *path, const char *refname,
 	strvec_pushf(&child_env, "%s=%s", GIT_DIR_ENVIRONMENT, sb_git.buf);
 	strvec_pushf(&child_env, "%s=%s", GIT_WORK_TREE_ENVIRONMENT, path);
 
+	/*
+	 * With --reflink the checkout clones files out of the working tree we
+	 * are adding from instead of expanding the blobs.  Every clone is
+	 * verified against the blob, so a dirty reference tree costs a syscall
+	 * and never a wrong file.
+	 */
+	if (opts->reflink && repo_get_work_tree(the_repository))
+		strvec_pushf(&child_env, "GIT_CHECKOUT_REFERENCE_TREE=%s",
+			     absolute_path(repo_get_work_tree(the_repository)));
+
 	if (opts->orphan &&
 	    (ret = make_worktree_orphan(refname, opts, &child_env)))
 		goto done;
@@ -843,6 +854,8 @@ static int add(int ac, const char **av, const char *prefix,
 		OPT_BOOL(0, "orphan", &opts.orphan, N_("create unborn branch")),
 		OPT_BOOL('d', "detach", &opts.detach, N_("detach HEAD at named commit")),
 		OPT_BOOL(0, "checkout", &opts.checkout, N_("populate the new working tree")),
+		OPT_BOOL(0, "reflink", &opts.reflink,
+			 N_("clone files from the current working tree where the filesystem supports it")),
 		OPT_BOOL(0, "lock", &keep_locked, N_("keep the new working tree locked")),
 		OPT_STRING(0, "reason", &lock_reason, N_("string"),
 			   N_("reason for locking")),
@@ -873,6 +886,9 @@ static int add(int ac, const char **av, const char *prefix,
 	if (opts.orphan && !opts.checkout)
 		die(_("options '%s' and '%s' cannot be used together"),
 		    "--orphan", "--no-checkout");
+	if (opts.reflink && !opts.checkout)
+		die(_("options '%s' and '%s' cannot be used together"),
+		    "--reflink", "--no-checkout");
 	if (opts.orphan && ac == 2)
 		die(_("option '%s' and commit-ish cannot be used together"),
 		    "--orphan");

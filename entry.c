@@ -14,7 +14,22 @@
 #include "progress.h"
 #include "fsmonitor.h"
 #include "entry.h"
+#include "object.h"
+#include "object-file.h"
 #include "parallel-checkout.h"
+
+#ifdef __linux__
+#include <sys/ioctl.h>
+/*
+ * Same value as FICLONE in <linux/fs.h>
+ */
+#define GIT_FICLONE _IOW(0x94, 9, int)
+#endif
+
+/*
+ * When reflink copy is specified, files smaller are written out instead.
+ */
+#define REFLINK_MIN_SIZE 4096
 
 static void create_directories(const char *path, int path_len,
 			       const struct checkout *state)
@@ -279,6 +294,102 @@ void update_ce_after_write(const struct checkout *state, struct cache_entry *ce,
 	}
 }
 
+/*
+ * Does checking this entry out rewrite the bytes the blob holds?  Only the
+ * attributes are consulted, so this answers "may": the conversion code still
+ * looks at the content before it rewrites anything.  Rewritten files are
+ * skipped for reflink copy, which hands over the blob byte for byte.
+ */
+static bool entry_content_will_be_converted(const struct conv_attrs *ca)
+{
+	if (!ca)
+		return true;
+	if (ca->ident)
+		return true;
+	if (ca->drv)
+		return true;
+	if (ca->working_tree_encoding)
+		return true;
+	if (convert_attrs_outputs_crlf(ca))
+		return true;
+	return false;
+}
+
+/*
+ * Create `path` by reflinking a file of the same content out of the working
+ * tree named by GIT_CHECKOUT_REFERENCE_TREE, instead of expanding the blob
+ * out of the object database.  The clone is verified by hashing what landed
+ * on disk, so a stale or dirty reference tree costs a wasted syscall and
+ * never a wrong file.  Returns 1 when the file is in place, 0 when the
+ * caller has to check the entry out normally.
+ */
+static int reflink_write_entry(const struct cache_entry *ce, char *path,
+			       const struct checkout *state,
+			       int *fstat_done, struct stat *statbuf)
+{
+#ifdef __linux__
+	const char *ref = getenv("GIT_CHECKOUT_REFERENCE_TREE");
+	struct strbuf buf = STRBUF_INIT;
+	struct stat st;
+	struct object_id oid;
+	char *src;
+	int src_fd, fd = -1, ok = 0;
+
+	if (!ref || !*ref)
+		return 0;
+
+	src = xstrfmt("%s/%s", ref, ce->name);
+	src_fd = open(src, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+	free(src);
+	if (src_fd < 0)
+		return 0;
+
+	if (fstat(src_fd, &st) < 0 || !S_ISREG(st.st_mode) ||
+	    st.st_size < REFLINK_MIN_SIZE)
+		goto done;
+
+	fd = open_output_fd(path, ce, 0);
+	if (fd < 0)
+		goto done;
+	if (ioctl(fd, GIT_FICLONE, src_fd) < 0) {
+		close(fd);
+		fd = -1;
+		unlink(path);
+		goto done;
+	}
+	close(fd);
+
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+		unlink(path);
+		goto done;
+	}
+	if (strbuf_read(&buf, fd, 0) < 0)
+		goto mismatch;
+	hash_object_file(the_repository->hash_algo, buf.buf, buf.len,
+			 OBJ_BLOB, &oid);
+	if (!oideq(&oid, &ce->oid))
+		goto mismatch;
+
+	*fstat_done = fstat_checkout_output(fd, state, statbuf);
+	ok = 1;
+	goto done;
+
+mismatch:
+	close(fd);
+	fd = -1;
+	unlink(path);
+done:
+	if (fd >= 0)
+		close(fd);
+	close(src_fd);
+	strbuf_release(&buf);
+	return ok;
+#else
+	return 0;
+#endif
+}
+
 /* Note: ca is used (and required) iff the entry refers to a regular file. */
 static int write_entry(struct cache_entry *ce, char *path, struct conv_attrs *ca,
 		       const struct checkout *state, int to_tempfile,
@@ -300,7 +411,13 @@ static int write_entry(struct cache_entry *ce, char *path, struct conv_attrs *ca
 	clone_checkout_metadata(&meta, &state->meta, &ce->oid);
 
 	if (ce_mode_s_ifmt == S_IFREG) {
-		struct stream_filter *filter = get_stream_filter_ca(ca, &ce->oid);
+		struct stream_filter *filter;
+
+		if (!to_tempfile && !entry_content_will_be_converted(ca) &&
+		    reflink_write_entry(ce, path, state, &fstat_done, &st))
+			goto finish;
+
+		filter = get_stream_filter_ca(ca, &ce->oid);
 		if (filter &&
 		    !streaming_write_entry(ce, path, filter,
 					   state, to_tempfile,

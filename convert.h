@@ -68,13 +68,28 @@ struct checkout_metadata {
 };
 
 enum convert_crlf_action {
+	/* Nothing decided yet: no text/crlf attribute and core.autocrlf
+	 * unset, or a value convert_attrs() has not resolved. */
 	CRLF_UNDEFINED,
+	/* `-text`: neither direction touches the line endings. */
 	CRLF_BINARY,
+	/* `text`, with the eol left to core.autocrlf and core.eol;
+	 * convert_attrs() resolves this into one of the two TEXT_* below. */
 	CRLF_TEXT,
+	/* `text` with LF as the working tree form: CRLF is stripped on the
+	 * way into the index, and checkout writes the blob out unchanged. */
 	CRLF_TEXT_INPUT,
+	/* `text` with CRLF as the working tree form: every naked LF in the
+	 * blob becomes CRLF on checkout. */
 	CRLF_TEXT_CRLF,
+	/* `auto`, with the eol left to core.autocrlf and core.eol; both
+	 * directions guess from the content, and a file that already contains
+	 * CR or CRLF, or looks binary, is left alone. */
 	CRLF_AUTO,
+	/* `auto` with LF as the working tree form. */
 	CRLF_AUTO_INPUT,
+	/* `auto` with CRLF as the working tree form: the AUTO_* content
+	 * checks still decide whether any LF is rewritten. */
 	CRLF_AUTO_CRLF
 };
 
@@ -90,6 +105,12 @@ struct conv_attrs {
 
 void convert_attrs(struct index_state *istate,
 		   struct conv_attrs *ca, const char *path);
+
+/*
+ * Whether checkout writes CRLF for this entry, judging from the attributes
+ * alone; the content can still make the rewrite unnecessary.
+ */
+int convert_attrs_outputs_crlf(const struct conv_attrs *ca);
 
 extern enum eol core_eol;
 extern char *check_roundtrip_encoding;

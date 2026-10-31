@@ -1288,4 +1288,54 @@ test_expect_success 'relative worktree sets extension config' '
 	test_cmp_config -C repo true extensions.relativeworktrees
 '
 
+test_expect_success 'add --reflink checks out the commit' '
+	test_when_finished "rm -rf repo wt" &&
+	git init repo &&
+	test_commit -C repo one file.t one &&
+	git -C repo worktree add --reflink ../wt &&
+	test_cmp repo/file.t wt/file.t &&
+	git -C wt status --porcelain >out &&
+	test_must_be_empty out
+'
+
+test_expect_success 'add --reflink --no-checkout is refused' '
+	test_when_finished "rm -rf repo wt-no" &&
+	git init repo &&
+	test_commit -C repo one file.t one &&
+	test_must_fail git -C repo worktree add --reflink --no-checkout ../wt-no 2>err &&
+	test_grep "cannot be used together" err &&
+	test_path_is_missing ../wt-no
+'
+
+test_expect_success 'add --reflink writes converted content like a plain add' '
+	test_when_finished "rm -rf repo plain reflink" &&
+	git init repo &&
+	(
+		cd repo &&
+		echo "*.txt text eol=crlf" >.gitattributes &&
+		test_commit one file.txt one &&
+		git worktree add ../plain &&
+		git worktree add --reflink ../reflink
+	) &&
+	test_cmp repo/file.txt plain/file.txt &&
+	test_cmp plain/file.txt reflink/file.txt
+'
+
+test_expect_success 'a stale reference tree does not reach the checkout' '
+	test_when_finished "rm -rf repo bogus" &&
+	git init repo &&
+	test_commit -C repo one file.t one &&
+	mkdir bogus &&
+	echo not-the-content >bogus/file.t &&
+	git -C repo cat-file blob HEAD:file.t >expect &&
+	rm repo/file.t &&
+	(
+		cd repo &&
+		GIT_CHECKOUT_REFERENCE_TREE="$(pwd)/../bogus" git checkout -- file.t
+	) &&
+	test_cmp expect repo/file.t &&
+	git -C repo status --porcelain >out &&
+	test_must_be_empty out
+'
+
 test_done
